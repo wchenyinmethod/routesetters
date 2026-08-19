@@ -35,7 +35,11 @@
     this.cam = { x: 330, y: -200, zoom: 1, tx: 330, ty: -200, shake: 0, free: false };
     this.input = {
       sx: 0, sy: 0, mx: 0, my: 0, left: false, right: false, jump: false,
-      wheel: 0, panning: false, lastSx: 0, lastSy: 0
+      wheel: 0, panning: false, lastSx: 0, lastSy: 0,
+      /* Until the first mouse move we have no idea where the cursor is. Aiming
+         at the default (0,0) means aiming at the world origin, which is off the
+         bottom-left of the wall, and both arms haul the climber over sideways. */
+      aimed: false
     };
     this.placement = null;
     this.toasts = [];
@@ -89,6 +93,7 @@
       self.input.sy = e.clientY - r.top;
       var w = self.screenToWorld(self.input.sx, self.input.sy);
       self.input.mx = w.x; self.input.my = w.y;
+      self.input.aimed = true;
     };
 
     c.addEventListener('mousemove', function (e) {
@@ -144,6 +149,7 @@
       self.input.sy = t.clientY - r.top;
       var w = self.screenToWorld(self.input.sx, self.input.sy);
       self.input.mx = w.x; self.input.my = w.y;
+      self.input.aimed = true;
       if (self.phase === 'build' && self.placement) { self.placementClick(); }
       else { self.input.left = true; self.input.right = e.touches.length > 1; }
       e.preventDefault();
@@ -155,6 +161,7 @@
       self.input.sy = t.clientY - r.top;
       var w = self.screenToWorld(self.input.sx, self.input.sy);
       self.input.mx = w.x; self.input.my = w.y;
+      self.input.aimed = true;
       self.input.right = e.touches.length > 1;
       e.preventDefault();
     }, { passive: false });
@@ -327,6 +334,10 @@
       playerIndex: playerInfo && playerInfo.index !== undefined ? playerInfo.index : 0
     });
     this.climberInfo = playerInfo;
+    if (!this.input.aimed) {
+      this.input.mx = this.climber.chest.x;
+      this.input.my = this.climber.chest.y - 26;
+    }
     this.cam.free = false;
     this.cam.x = this.cam.tx = this.world.start.x;
     this.cam.y = this.cam.ty = this.world.start.y - 60;
@@ -505,6 +516,12 @@
       RS.updateProps(this, dt, this.solver.time);
     } else if (this.phase === 'run' && this.climber) {
       this.runTime += dt;
+      /* Neutral aim until the player moves the mouse, so the climber stands
+         still instead of reaching for the corner of the world. */
+      if (!this.input.aimed) {
+        this.input.mx = this.climber.chest.x;
+        this.input.my = this.climber.chest.y - 26;
+      }
       var st = 0;
       this.accum += dt;
       while (this.accum >= FIXED && st < 5) {

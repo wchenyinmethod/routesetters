@@ -72,8 +72,10 @@
 
   function baseTerrain(height) {
     return [
-      /* ground */
-      { type: 'rect', x: X0 - 300, y: 0, w: W + 600, h: 420, mat: 'rock' },
+      /* Ground surface sits just below the start shelf. It used to be at y=0,
+         which buried the shelf AND put the climber's legs inside solid rock at
+         spawn - the ejection launched the ragdoll and it settled upside down. */
+      { type: 'rect', x: X0 - 300, y: 52, w: W + 600, h: 420, mat: 'rock' },
       /* the start shelf */
       { type: 'capsule', x1: X0 + W / 2 - 58, y1: 44, x2: X0 + W / 2 + 58, y2: 44, r: 8, mat: 'rock' },
       /* top-out ledge */

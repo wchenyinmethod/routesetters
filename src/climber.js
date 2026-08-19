@@ -163,6 +163,38 @@
     this.startY = y;
     this.highY = y;
     this.spawnX = x; this.spawnY = y;
+
+    this.liftClearOfTerrain();
+  };
+
+  /* Spawning even slightly inside solid rock is catastrophic: the collision
+     ejection launches the whole ragdoll and it can settle upside down. Lift the
+     body until nothing is embedded before the first step ever runs. */
+  Climber.prototype.liftClearOfTerrain = function () {
+    var terrain = this.world && this.world.terrain;
+    if (!terrain) return;
+    for (var pass = 0; pass < 24; pass++) {
+      var worst = 0;
+      for (var i = 0; i < this.points.length; i++) {
+        var p = this.points[i];
+        if (!p.collide) continue;
+        for (var j = 0; j < terrain.length; j++) {
+          if (terrain[j].dead) continue;
+          var hit = RS.resolveShape(p, terrain[j]);
+          if (hit && hit.pen > worst) worst = hit.pen;
+        }
+      }
+      if (worst < 0.5) break;
+      for (var k = 0; k < this.points.length; k++) {
+        this.points[k].setPos(this.points[k].x, this.points[k].y - worst - 0.5, false);
+      }
+      this.spawnY -= worst + 0.5;
+      this.startY = this.spawnY;
+      this.highY = this.spawnY;
+    }
+    for (var m in this.limbs) {
+      this.limbs[m].anchor.setPos(this.limbs[m].point.x, this.limbs[m].point.y, false);
+    }
   };
 
   Climber.prototype.destroy = function () {
@@ -501,12 +533,12 @@
              instead of settling on it and you cannot hit a small hold. */
           var fx = (L.targetX - L.point.x), fy = (L.targetY - L.point.y);
           var fl = RS.len(fx, fy);
-          var mag = Math.min(fl * 46, 2400);
+          var mag = Math.min(fl * 68, 3400);
           if (fl > 0.01) {
             var hvx = L.point.x - L.point.px, hvy = L.point.y - L.point.py;
             L.point.addForce(
-              fx / fl * mag - hvx * 640,
-              fy / fl * mag - hvy * 640 - 420
+              fx / fl * mag - hvx * 760,
+              fy / fl * mag - hvy * 760 - 420
             );
           }
         }
@@ -520,11 +552,57 @@
     this.jointBias(this.pelvis, this.footL, this.kneeL, this.facingT, 340);
     this.jointBias(this.pelvis, this.footR, this.kneeR, this.facingT, 340);
 
+    /* ---- balance: stand up straight when you are on your feet ----
+       A ragdoll stood on a ledge is an inverted pendulum, so it needs an actual
+       damped controller, not a nudge: stack the chest over the hips and the hips
+       over the feet. Only while your hands are free - the moment you are hanging
+       off a hold, physics takes over completely. */
+    if (this.footCount() > 0 && this.gripCount() === 0 && !limp) {
+      var footMid = (this.footL.x + this.footR.x) * 0.5;
+      var cErr = this.pelvis.x - this.chest.x;
+      var cVel = this.chest.x - this.chest.px;
+      this.chest.addForce(cErr * 150 - cVel * 1100, 0);
+      var pErr = footMid - this.pelvis.x;
+      var pVel = this.pelvis.x - this.pelvis.px;
+      this.pelvis.addForce(pErr * 110 - pVel * 850, 0);
+      /* and hold the head up over the shoulders */
+      var hErr = this.chest.x - this.head.x;
+      var hVel = this.head.x - this.head.px;
+      this.head.addForce(hErr * 120 - hVel * 700, 0);
+    }
+
+    /* ---- righting: a climber never hangs upside down ----
+       Zero effect while the torso is already upright, so it does not interfere
+       with normal climbing, but it makes a fully inverted ragdoll impossible to
+       settle into. Without this, one bad ejection leaves you stuck head-down. */
+    var upx = this.chest.x - this.pelvis.x, upy = this.chest.y - this.pelvis.y;
+    var ul = RS.len(upx, upy) || 1;
+    var align = -upy / ul;                    // 1 = upright, -1 = fully inverted
+    if (align < 0.985) {
+      var righting = (0.985 - align) * 0.5;   // ramps in as the torso tips over
+      var rf = 2600 * righting * (this.gripCount() > 0 ? 0.35 : 1);
+      this.chest.addForce(0, -rf);
+      this.pelvis.addForce(0, rf * 0.6);
+      /* a sideways nudge so it does not balance perfectly on its head */
+      this.chest.addForce(RS.sign(upx || 1) * rf * 0.25, 0);
+    }
+
     /* ---- head stays upright-ish and looks where you aim ---- */
     if (!limp) {
       var hx = this.chest.x + this.facingT * 3, hy = this.chest.y - DIM.neck * this.scale;
       this.head.addForce((hx - this.head.x) * 26, (hy - this.head.y) * 26 - 300);
     }
+
+    /* ---- legs carry the body when you are stood on something ----
+       These strut constraints existed but were left at zero stiffness, so gravity
+       simply folded the climber into a squat with its hips at ankle height and
+       nothing within arm's reach. Give the legs tone while standing, and let them
+       fold freely again the moment you are hanging off your hands. */
+    var standing = this.footCount() > 0 && this.gripCount() === 0 && !limp;
+    var legLen = (standing ? (DIM.thigh + DIM.shin) * 0.88 : 24) * this.scale;
+    this.legL.len = RS.approach(this.legL.len, legLen, 9, dt);
+    this.legR.len = this.legL.len;
+    this.legL.stiff = this.legR.stiff = standing ? 0.5 : 0.06;
 
     /* ---- feet: automatic smearing / standing ---- */
     this.updateFeet(dt, input, limp);
@@ -636,6 +714,12 @@
           if (f && RS.dist(p.x, p.y, f.x, f.y) < f.r + f.reach * 0.8) this.latch(L, f);
         }
       }
+
+      /* A foot bearing weight is braced, so it gets heavy - exactly like a
+         latched hand. Left light, the leg strut shoves the foot out sideways
+         instead of lifting the hips, and the climber collapses into a splayed
+         squat with nothing in arm's reach. */
+      if (!L.hold) p.invMass = p.grounded ? L.heldMass : L.freeMass;
 
       /* Free legs look for a foothold to high-step onto rather than dangling
          fully extended. This is most of what feet are for: standing up on a

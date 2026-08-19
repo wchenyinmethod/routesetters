@@ -91,7 +91,72 @@ for (const def of RS.PARTY_WALLS) {
     (g.world.bridged || 0) + ' bridges');
 }
 
+/* ------------------------------------------------------------------ spawning
+ * Regression guard. The climber used to spawn with its legs buried in the ground
+ * (the start shelf sat below the ground surface); the collision ejection launched
+ * the ragdoll and it settled completely upside down with nothing in arm's reach.
+ * Every level must now put you on your feet, upright and able to grab at once.
+ */
+console.log('\nSpawn posture and responsiveness:\n');
+{
+  const F = 1 / 120;
+  const spawn = (def) => {
+    const g = {
+      solver: new RS.Solver(), world: null, climber: null, runTime: 0,
+      shake() {}, toast() {}, sfx() {}
+    };
+    RS.buildWorld(g, def);
+    g.climber = new RS.Climber(g, { x: def.start.x, y: def.start.y, profile: RS.PROFILES[0] });
+    return g;
+  };
+
+  const levels = [['Tutorial', RS.TUTORIAL_LEVEL]]
+    .concat(RS.STORY_LEVELS.map(d => [d.name, d]))
+    .concat(RS.PARTY_WALLS.map(d => [d.name, d]));
+
+  for (const row of levels) {
+    const name = row[0], def = row[1];
+    const g = spawn(def), cl = g.climber;
+
+    let worst = 0;
+    for (const p of cl.points) {
+      if (!p.collide) continue;
+      for (const t of g.world.terrain) {
+        const hit = RS.resolveShape(p, t);
+        if (hit && hit.pen > worst) worst = hit.pen;
+      }
+    }
+    chk(name.padEnd(18) + ' spawns clear of terrain', worst < 1, worst.toFixed(1) + 'px embedded');
+
+    for (let i = 0; i < 300; i++) {
+      cl.update(F, { mx: cl.chest.x, my: cl.chest.y - 20, left: false, right: false, jump: false }, true);
+      g.solver.step(F);
+      RS.updateProps(g, F, g.solver.time);
+    }
+    const upright = cl.head.y < cl.chest.y && cl.chest.y < cl.pelvis.y;
+    const tilt = Math.abs(Math.atan2(cl.chest.x - cl.pelvis.x, -(cl.chest.y - cl.pelvis.y)) * 180 / Math.PI);
+    chk(name.padEnd(18) + ' settles upright', upright && tilt < 35,
+      upright ? 'tilt ' + tilt.toFixed(0) + 'deg' : 'INVERTED');
+    chk(name.padEnd(18) + ' has its feet down', cl.footCount() > 0);
+
+    const jugs = g.world.holds.filter(h => h.protected && h.type === 'jug');
+    if (jugs.length) {
+      jugs.sort((a, b) => RS.dist(cl.chest.x, cl.chest.y, a.x, a.y) - RS.dist(cl.chest.x, cl.chest.y, b.x, b.y));
+      const j = jugs[0];
+      let frames = -1;
+      for (let i = 0; i < 240; i++) {
+        cl.update(F, { mx: j.x, my: j.y, left: true, right: false, jump: false }, true);
+        g.solver.step(F);
+        RS.updateProps(g, F, g.solver.time);
+        if (cl.limbs.handL.hold) { frames = i; break; }
+      }
+      chk(name.padEnd(18) + ' grabs within 500ms', frames >= 0 && frames < 60,
+        frames < 0 ? 'never grabbed' : (frames / 120 * 1000).toFixed(0) + 'ms');
+    }
+  }
+}
+
 console.log('\n' + (fails === 0
-  ? '=== EVERY ROUTE IS TOPPABLE ==='
+  ? '=== ROUTES TOPPABLE, SPAWNS CLEAN ==='
   : '=== ' + fails + ' CHECK(S) FAILED ==='));
 process.exit(fails ? 1 : 0);

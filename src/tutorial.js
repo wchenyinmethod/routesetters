@@ -61,7 +61,7 @@
     start: { x: CX, y: -14 },
     finish: { x: CX, y: -HEIGHT + 58, r: 40 },
     terrain: [
-      { type: 'rect', x: -300, y: 0, w: W + 600, h: 420, mat: 'rock' },
+      { type: 'rect', x: -300, y: 52, w: W + 600, h: 420, mat: 'rock' },
       { type: 'capsule', x1: CX - 58, y1: 44, x2: CX + 58, y2: 44, r: 8, mat: 'rock' },
       { type: 'capsule', x1: CX - 76, y1: -HEIGHT + 96, x2: CX + 76, y2: -HEIGHT + 96, r: 10, mat: 'granite' }
     ]
@@ -85,9 +85,14 @@
     {
       id: 'pullup',
       title: 'Now pull up on it',
-      text: 'Keep the button held and move the mouse <b>above</b> that hold. The arm contracts and hauls your body up. Move the mouse <b>below</b> it and the arm pays out so you hang long and rest.',
+      text: 'Keep the button held and move the mouse <b>above</b> that hold. The arm contracts and takes your weight off your feet. Move the mouse <b>below</b> it and the arm pays out so you hang long and rest.',
       enter: function (g, cl, st) { st.baseY = cl.chest.y; },
-      check: function (g, cl, st) { return cl.chest.y < st.baseY - 20; }
+      /* You start stood on the ledge, so the jug is only about chest height and
+         a lock-off cannot lift you far. Getting your feet off the ground is the
+         observable proof that the arm took your weight. */
+      check: function (g, cl, st) {
+        return cl.chest.y < st.baseY - 10 || cl.footCount() === 0;
+      }
     },
     {
       id: 'reach',

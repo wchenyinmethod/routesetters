@@ -152,7 +152,7 @@ chk('ten steps defined', STEPS.length === 10, STEPS.length + ' steps');
     RS.updateProps(g, F, g.solver.time);
     if (latched) got = byId.pullup.check(g, cl, st);
   }
-  chk('"pullup": chest rises 20px off the start', got);
+  chk('"pullup": arm takes your weight off the ledge', got);
 }
 
 /* The height gates ask you to climb to a given altitude. A scripted driver
