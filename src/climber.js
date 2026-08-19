@@ -62,6 +62,7 @@
     this.jumpCd = 0;
     this.slipFx = 0;
     this.dynoCount = 0;    // read by the tutorial to confirm you tried one
+    this.stanceX = null;   // where we planted our feet, so we do not creep
 
     this.topped = false;
     this.toppedAt = null;
@@ -123,6 +124,10 @@
     C(this.chest, this.kneeR, 30, 0.35, 'min');
     C(this.kneeL, this.kneeR, 15, 0.25, 'min');
     C(this.footL, this.footR, 12, 0.15, 'min');
+    /* ...and a ceiling on it. Without this the leg struts slowly push the feet
+       apart into the splits, the stance widens off the edge of the ledge, and
+       the whole body slides sideways. */
+    C(this.footL, this.footR, 34, 0.55, 'max');
     C(this.chest, this.handL, 15, 0.5, 'min');
     C(this.chest, this.handR, 15, 0.5, 'min');
     C(this.pelvis, this.footL, DIM.thigh + DIM.shin, 0.9, 'max');
@@ -223,6 +228,7 @@
     this.pumped = 0;
     this.stun = 0.35;
     this.wet = 0;
+    this.stanceX = null;
     this.deaths++;
   };
 
@@ -397,6 +403,18 @@
 
     var limp = this.stun > 0 || this.pumped > 0 || !active;
 
+    /* Posture flags, needed by the balance controller below and the leg servo
+       further down. Declared here because `var` hoisting made them undefined at
+       the first use site and the balance controller silently never ran. */
+    var onMover = false;
+    for (var mf = 0; mf < this.feet.length; mf++) {
+      var mfh = this.feet[mf].hold;
+      if (mfh && (mfh.motion || mfh.dynamic)) onMover = true;
+    }
+    var standing = this.footCount() > 0 && this.gripCount() === 0 && !limp && !onMover;
+    var idle = !input.left && !input.right && !input.jump;
+    var planted = standing && idle;
+
     /* ---- environment sampling ---- */
     var wetSrc = Math.max(this.handL.zoneWet, this.handR.zoneWet, this.chest.zoneWet);
     if (wetSrc > 0) this.wet = Math.min(1, this.wet + dt * 2.4 * wetSrc);
@@ -548,27 +566,30 @@
     /* ---- elbows want to hang below the shoulder->hand line ---- */
     this.jointBias(this.chest, this.handL, this.elbowL, 1, 620);
     this.jointBias(this.chest, this.handR, this.elbowR, 1, 620);
-    /* ---- knees lead forward ---- */
-    this.jointBias(this.pelvis, this.footL, this.kneeL, this.facingT, 340);
-    this.jointBias(this.pelvis, this.footR, this.kneeR, this.facingT, 340);
+    /* ---- knees lead forward ----
+       Eased right off while stood still: a permanent lean toward `facing` is a
+       permanent sideways force, and on a ledge that is a slow slide. */
+    this.jointBias(this.pelvis, this.footL, this.kneeL, this.facingT, standing ? 90 : 340);
+    this.jointBias(this.pelvis, this.footR, this.kneeR, this.facingT, standing ? 90 : 340);
 
     /* ---- balance: stand up straight when you are on your feet ----
        A ragdoll stood on a ledge is an inverted pendulum, so it needs an actual
        damped controller, not a nudge: stack the chest over the hips and the hips
        over the feet. Only while your hands are free - the moment you are hanging
        off a hold, physics takes over completely. */
-    if (this.footCount() > 0 && this.gripCount() === 0 && !limp) {
+    if (standing) {
+      var bg = idle ? 1 : 0.18;             // ease well off so you can lean and reach
       var footMid = (this.footL.x + this.footR.x) * 0.5;
       var cErr = this.pelvis.x - this.chest.x;
       var cVel = this.chest.x - this.chest.px;
-      this.chest.addForce(cErr * 150 - cVel * 1100, 0);
+      this.chest.addForce((cErr * 150 - cVel * 1100) * bg, 0);
       var pErr = footMid - this.pelvis.x;
       var pVel = this.pelvis.x - this.pelvis.px;
-      this.pelvis.addForce(pErr * 110 - pVel * 850, 0);
+      this.pelvis.addForce((pErr * 110 - pVel * 850) * bg, 0);
       /* and hold the head up over the shoulders */
       var hErr = this.chest.x - this.head.x;
       var hVel = this.head.x - this.head.px;
-      this.head.addForce(hErr * 120 - hVel * 700, 0);
+      this.head.addForce((hErr * 120 - hVel * 700) * bg, 0);
     }
 
     /* ---- righting: a climber never hangs upside down ----
@@ -583,29 +604,57 @@
       var rf = 2600 * righting * (this.gripCount() > 0 ? 0.35 : 1);
       this.chest.addForce(0, -rf);
       this.pelvis.addForce(0, rf * 0.6);
-      /* a sideways nudge so it does not balance perfectly on its head */
-      this.chest.addForce(RS.sign(upx || 1) * rf * 0.25, 0);
+      /* Only once genuinely inverted, help it finish tipping over rather than
+         balancing on its head. Applying this at mild angles pushed the chest
+         further the way it was already leaning, which fed the lean and made the
+         climber creep sideways. */
+      if (align < -0.3 && Math.abs(upx) > 0.5) {
+        this.chest.addForce(RS.sign(upx) * rf * 0.25, 0);
+      }
     }
 
     /* ---- head stays upright-ish and looks where you aim ---- */
     if (!limp) {
-      var hx = this.chest.x + this.facingT * 3, hy = this.chest.y - DIM.neck * this.scale;
+      var hx = this.chest.x + (standing ? 0 : this.facingT * 3);
+      var hy = this.chest.y - DIM.neck * this.scale;
       this.head.addForce((hx - this.head.x) * 26, (hy - this.head.y) * 26 - 300);
     }
 
     /* ---- legs carry the body when you are stood on something ----
-       These strut constraints existed but were left at zero stiffness, so gravity
-       simply folded the climber into a squat with its hips at ankle height and
-       nothing within arm's reach. Give the legs tone while standing, and let them
-       fold freely again the moment you are hanging off your hands. */
-    var standing = this.footCount() > 0 && this.gripCount() === 0 && !limp;
-    var legLen = (standing ? (DIM.thigh + DIM.shin) * 0.88 : 24) * this.scale;
-    this.legL.len = RS.approach(this.legL.len, legLen, 9, dt);
-    this.legR.len = this.legL.len;
-    this.legL.stiff = this.legR.stiff = standing ? 0.5 : 0.06;
+       Servo the hips to a height above the feet rather than pushing hips and feet
+       apart with a distance strut: a strut acts along the leg line, which is
+       mostly sideways once the legs splay, so it slid the feet out from under the
+       climber instead of standing it up. */
+    this.legL.stiff = this.legR.stiff = 0;          // struts are for the dyno only
+    if (standing) {
+      var footY = Math.min(this.footL.y, this.footR.y);
+      var hipTarget = footY - (DIM.thigh + DIM.shin) * 0.86 * this.scale;
+      var hipErr = hipTarget - this.pelvis.y;
+      var hipVel = this.pelvis.y - this.pelvis.py;
+      this.pelvis.addForce(0, hipErr * 105 - hipVel * 950);
+
+      /* Hold the spot, but only while the player is asking for nothing. Every
+         remaining sideways nudge in the posture code is a tiny constant force,
+         and constant force on a planted body is a slow slide across the ledge.
+         Pinned any harder than that and the torso cannot lean toward a hold, so
+         the thing you are reaching for stays permanently 5px out of reach. */
+      if (planted) {
+        if (this.stanceX === null) this.stanceX = this.pelvis.x;
+        var sErr = this.stanceX - this.pelvis.x;
+        var sVel = this.pelvis.x - this.pelvis.px;
+        this.pelvis.addForce(sErr * 130 - sVel * 420, 0);
+        var fl = this.footL, fr = this.footR;
+        fl.addForce((this.stanceX - 7 * this.scale - fl.x) * 60 - (fl.x - fl.px) * 260, 0);
+        fr.addForce((this.stanceX + 7 * this.scale - fr.x) * 60 - (fr.x - fr.px) * 260, 0);
+      } else {
+        this.stanceX = null;
+      }
+    } else {
+      this.stanceX = null;
+    }
 
     /* ---- feet: automatic smearing / standing ---- */
-    this.updateFeet(dt, input, limp);
+    this.updateFeet(dt, input, limp, standing);
 
     /* ---- dyno ---- */
     if (input.jump && !limp && this.jumpCd <= 0 && (this.footCount() > 0) && this.stamina > 12) {
@@ -615,8 +664,8 @@
     /* ---- stamina bookkeeping ---- */
     var gripping = this.gripCount() > 0;
     if (!gripping) {
-      var standing = this.footCount() >= 1 && this.chest.speed() < 1.2;
-      this.stamina += (standing ? 26 : 5.5) * dt;
+      var resting = this.footCount() >= 1 && this.chest.speed() < 1.2;
+      this.stamina += (resting ? 26 : 5.5) * dt;
     }
     this.stamina = clamp(this.stamina, 0, this.staminaMax);
     if (this.stamina <= 0.01 && this.pumped <= 0) {
@@ -680,7 +729,7 @@
     return { x: this.chest.x + nx * off, y: this.chest.y + ny * off };
   };
 
-  Climber.prototype.updateFeet = function (dt, input, limp) {
+  Climber.prototype.updateFeet = function (dt, input, limp, standing) {
     var holds = this.world.holds;
     for (var i = 0; i < this.feet.length; i++) {
       var L = this.feet[i];
@@ -727,7 +776,11 @@
       if (!limp && !L.hold) {
         var side = (L.side === 'L' ? -1 : 1);
         var legLen = (DIM.thigh + DIM.shin) * this.scale;
-        var tx = this.pelvis.x + side * 6 * this.scale + this.facingT * 5;
+        /* No facing bias while stood still - it is a constant sideways push and
+           the balance controller then chases the feet, walking the climber off
+           the ledge a pixel at a time. */
+        var lean = standing ? 0 : this.facingT * 5;
+        var tx = this.pelvis.x + side * 6 * this.scale + lean;
         var ty = this.pelvis.y + (legLen - 4);
 
         /* Highest foothold that is still below the hips and inside leg range. */
@@ -751,6 +804,7 @@
   Climber.prototype.dyno = function () {
     this.jumpCd = 0.55;
     this.dynoCount++;
+    this.stanceX = null;
     this.stamina -= 9;
     var self = this;
     var power = 0;

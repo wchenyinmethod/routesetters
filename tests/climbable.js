@@ -139,6 +139,23 @@ console.log('\nSpawn posture and responsiveness:\n');
       upright ? 'tilt ' + tilt.toFixed(0) + 'deg' : 'INVERTED');
     chk(name.padEnd(18) + ' has its feet down', cl.footCount() > 0);
 
+    /* It used to creep sideways off the ledge: the leg struts pushed the feet
+       into the splits and several posture nudges leaned toward `facing`, which
+       is a constant sideways force on a planted body. */
+    const driftStart = cl.pelvis.x;
+    const stanceStart = Math.abs(cl.footR.x - cl.footL.x);
+    for (let i = 0; i < 1500; i++) {
+      cl.update(F, { mx: cl.chest.x, my: cl.chest.y - 26, left: false, right: false, jump: false }, true);
+      g.solver.step(F);
+      RS.updateProps(g, F, g.solver.time);
+    }
+    const drift = cl.pelvis.x - driftStart;
+    const stance = Math.abs(cl.footR.x - cl.footL.x);
+    chk(name.padEnd(18) + ' does not slide when idle', Math.abs(drift) < 4,
+      (drift >= 0 ? '+' : '') + drift.toFixed(2) + 'px over 12.5s');
+    chk(name.padEnd(18) + ' keeps a sane stance', stance < 40,
+      stanceStart.toFixed(0) + 'px -> ' + stance.toFixed(0) + 'px');
+
     const jugs = g.world.holds.filter(h => h.protected && h.type === 'jug');
     if (jugs.length) {
       jugs.sort((a, b) => RS.dist(cl.chest.x, cl.chest.y, a.x, a.y) - RS.dist(cl.chest.x, cl.chest.y, b.x, b.y));

@@ -590,7 +590,10 @@
     }
     /* and two starting jugs off the deck */
     var st = world.start;
-    [[-38, -34], [38, -30]].forEach(function (o) {
+    /* Inside arm's reach of the spawn stance (the shoulder sits ~8px either side
+       of centre and the arm spans 41), so the very first grab is instant instead
+       of waiting for the whole body to lean across. */
+    [[-26, -34], [26, -30]].forEach(function (o) {
       var s = RS.makeHold('jug', st.x + o[0], st.y + o[1], { protected: true });
       s.round = 0;
       world.holds.push(s);
