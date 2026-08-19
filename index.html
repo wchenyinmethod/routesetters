@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Routesetters - a difficult game about climbing, with a routebuilder</title>
+<meta name="description" content="A very difficult physics game about climbing, in which your friends redesign the wall between every attempt. Six story routes, 49 routesetting cards, local hotseat multiplayer.">
+<meta name="theme-color" content="#0a0d12">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Routesetters">
+<meta property="og:description" content="A very difficult game about climbing, in which your friends are allowed to redesign the wall between every attempt.">
+<meta property="og:image" content="og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <!-- ======================================================== level banner -->
+  <div id="banner"></div>
+
+  <!-- ================================================================= HUD -->
+  <div id="hud">
+    <div class="hud-left">
+      <div id="hud-who">You</div>
+      <div class="stam">
+        <div class="stam-label">GRIP</div>
+        <div class="stam-track"><div id="stam-fill"></div></div>
+        <div id="stam-val">100</div>
+      </div>
+      <div class="flags">
+        <span id="flag-wet" class="flag">WET HANDS</span>
+        <span id="flag-pump" class="flag warn">PUMPED</span>
+      </div>
+    </div>
+
+    <div class="hud-right">
+      <div class="height"><span id="hud-height">0.0m</span><small id="hud-top">/ 0m</small></div>
+      <div id="hud-time">00:00.00</div>
+      <div class="grips">
+        <div id="grip-l" class="grip"><b>L</b></div>
+        <div id="grip-r" class="grip"><b>R</b></div>
+      </div>
+      <div class="hint">hold <b>LMB</b> / <b>RMB</b> to grip &nbsp;·&nbsp; mouse above a hold to pull up &nbsp;·&nbsp; <b>space</b> to kick &nbsp;·&nbsp; <b>R</b> restart &nbsp;·&nbsp; <b>Esc</b> menu</div>
+    </div>
+  </div>
+
+  <!-- ==================================================== party score strip -->
+  <div id="scorestrip">
+    <div id="strip-list"></div>
+    <div id="strip-target"></div>
+  </div>
+
+  <!-- ====================================================== tutorial coach -->
+  <div id="coach">
+    <div class="coach-head">
+      <span id="coach-step">Step 1 of 10</span>
+      <span class="coach-tick">done</span>
+    </div>
+    <div id="coach-title">Grab on</div>
+    <div id="coach-text"></div>
+    <div class="coach-track"><div id="coach-fill"></div></div>
+    <div class="coach-actions">
+      <button id="btn-tut-skip-step" class="mini">Skip this step</button>
+      <button id="btn-tut-quit" class="mini ghost">Leave tutorial</button>
+    </div>
+  </div>
+
+  <!-- ========================================================== build phase -->
+  <div id="buildbar">
+    <div class="bb-head">
+      <div>
+        <div id="build-who">Builder</div>
+        <div id="build-round">Round 1</div>
+      </div>
+      <div class="bb-actions">
+        <div id="free-controls">
+          <button id="btn-free-build" class="pill">Build mode</button>
+          <button id="btn-free-climb" class="pill primary">Climb it</button>
+        </div>
+        <button id="btn-skip" class="pill ghost">Pass <b>X</b></button>
+      </div>
+    </div>
+    <div id="hand"></div>
+    <div id="placebar">
+      <div class="pb-left">
+        <span id="place-name">Card</span>
+        <span id="place-stage">Click to place</span>
+      </div>
+      <div id="place-warn"></div>
+      <button id="btn-cancel-place" class="pill ghost">Cancel <b>Esc</b></button>
+    </div>
+    <div class="bb-foot">
+      drag with <b>right mouse</b> or <b>WASD</b> to look around the wall &nbsp;·&nbsp; <b>scroll</b> to pan &nbsp;·&nbsp; <b>1</b>&thinsp;<b>2</b>&thinsp;<b>3</b> pick a card
+    </div>
+  </div>
+
+  <!-- ============================================================= screens -->
+  <div id="screens" class="on">
+
+    <!-- ---------------------------------------------------------- title ---- -->
+    <section data-screen="title" class="on center">
+      <div class="titleblock">
+        <h1>ROUTE<span>SETTERS</span></h1>
+        <p class="tag">A very difficult game about climbing, in which your friends
+        are allowed to redesign the wall between every attempt.</p>
+        <div class="menu">
+          <button id="btn-tutorial" class="big primary">Start here: tutorial</button>
+          <button id="btn-story" class="big">Story routes</button>
+          <button id="btn-party" class="big">Party routesetting</button>
+          <button id="btn-free" class="big">Free build</button>
+          <div class="menu-row">
+            <button id="btn-how">How to climb</button>
+            <button id="btn-cards">The deck</button>
+          </div>
+        </div>
+        <p class="foot">Everything runs locally. Hotseat multiplayer: pass the mouse around.</p>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- story ---- -->
+    <section data-screen="story">
+      <header>
+        <button data-back="title" class="back">‹ Back</button>
+        <h2>Story routes</h2>
+        <p>Six routes, getting steadily more unreasonable. Top out to unlock the next.</p>
+      </header>
+      <div class="sub">Your climber</div>
+      <div id="story-char" class="charrow"></div>
+      <div class="sub">Routes</div>
+      <div id="story-list" class="grid"></div>
+    </section>
+
+    <!-- ---------------------------------------------------------- party ---- -->
+    <section data-screen="party">
+      <header>
+        <button data-back="title" class="back">‹ Back</button>
+        <h2>Party routesetting</h2>
+        <p>Every round: each player bolts one change onto the wall, then everyone
+        takes a turn climbing it. Points for topping out. More points if you are
+        the only one who manages it.</p>
+      </header>
+      <div class="sub">Players</div>
+      <div id="party-count" class="pillrow"></div>
+      <div id="party-seats" class="seatrow"></div>
+      <div class="sub">Wall</div>
+      <div id="party-walls" class="grid"></div>
+      <div class="sub">Play to</div>
+      <div id="party-target" class="pillrow"></div>
+      <div class="actions"><button id="btn-party-start" class="big primary">Start match</button></div>
+    </section>
+
+    <!-- ----------------------------------------------------------- free ---- -->
+    <section data-screen="free">
+      <header>
+        <button data-back="title" class="back">‹ Back</button>
+        <h2>Free build</h2>
+        <p>Every card, unlimited, no turns. Build something horrible and then try to climb it.</p>
+      </header>
+      <div id="free-list" class="grid"></div>
+    </section>
+
+    <!-- ----------------------------------------------------------- deck ---- -->
+    <section data-screen="deck">
+      <header>
+        <button data-back="title" class="back">‹ Back</button>
+        <h2>The deck <small id="deck-count"></small></h2>
+        <p>Every change you can make to a route.</p>
+      </header>
+      <div id="deck-list"></div>
+    </section>
+
+    <!-- ----------------------------------------------------------- help ---- -->
+    <section data-screen="help">
+      <header>
+        <button data-back="title" class="back">‹ Back</button>
+        <h2>How to climb</h2>
+      </header>
+      <div class="helpbody">
+        <div class="helpcard">
+          <h3>Your two arms</h3>
+          <p>The mouse is where you are reaching. Both arms follow the cursor.
+          <b>Hold left mouse</b> to close your left hand, <b>hold right mouse</b> to close
+          your right. Let go of the button and the hand opens. If a hold is within
+          reach when you close your hand, you latch onto it.</p>
+          <p>On a trackpad, <b>Q</b> and <b>E</b> do the same thing.</p>
+        </div>
+        <div class="helpcard">
+          <h3>Pulling up</h3>
+          <p>This is the whole trick. Once a hand is on a hold, move the mouse
+          <b>above that hold</b> and the arm contracts, hauling your body upward.
+          Move the mouse <b>below</b> it and the arm pays out and you hang long.</p>
+          <p>So a move is: latch, pull the mouse up, throw the free hand at the next hold,
+          close that hand, release the first one.</p>
+        </div>
+        <div class="helpcard">
+          <h3>Feet and momentum</h3>
+          <p>Your feet look after themselves. They find footholds when they are near
+          one and you are not thrashing about. Standing on something halves how fast
+          your arms tire.</p>
+          <p><b>Space</b> kicks off your feet for a dyno. Use it for gaps you cannot reach.</p>
+        </div>
+        <div class="helpcard">
+          <h3>Grip and stamina</h3>
+          <p>The GRIP bar is your forearms. Crimps drain it fast, jugs barely touch it,
+          rest ledges refill it. At zero your hands open whether you like it or not.</p>
+          <p>Holds also slip. If you are swinging, or the hold is greasy, wet or iced,
+          it will spit you off. The hold shakes and goes red just before it does.</p>
+        </div>
+        <div class="helpcard">
+          <h3>Falling</h3>
+          <p>There is no death. You slide down the wall, land badly, and start again
+          from your last quickdraw clip, or from the ground if nobody has set one.</p>
+        </div>
+        <div class="helpcard">
+          <h3>Party mode</h3>
+          <p>Each round you get three cards and place one. Then everyone climbs the
+          wall in turn with a 75 second clock. Topping out is one point, three if you
+          are the only one who did it, and there is a bonus for touching the golden
+          Party Box if someone has set one.</p>
+          <p>The good cards help everyone, including your rivals. That is the game.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- pause ---- -->
+    <section data-screen="pause" class="center">
+      <div class="panel narrow">
+        <h2>Paused</h2>
+        <div class="menu">
+          <button id="btn-resume" class="big primary">Resume</button>
+          <button id="btn-restart" class="big">Restart this attempt</button>
+          <button id="btn-quit" class="big ghost">Quit to menu</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------- complete ---- -->
+    <section data-screen="complete" class="center">
+      <div class="panel narrow">
+        <h2 id="complete-title">Topped out</h2>
+        <p id="complete-sub" class="sublabel"></p>
+        <div id="complete-stats" class="stats"></div>
+        <div class="menu">
+          <button id="btn-next-level" class="big primary">Next route</button>
+          <button id="btn-retry-level" class="big">Climb it again</button>
+          <button id="btn-level-menu" class="big ghost">Route list</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- -------------------------------------------------------- tutdone ---- -->
+    <section data-screen="tutdone" class="center">
+      <div class="panel narrow">
+        <h2>That is the whole game</h2>
+        <p class="sublabel">Tutorial topped out in <b id="tut-done-time">00:00</b></p>
+        <div class="stats">
+          <div class="statrow"><span>Next</span><b>Story routes, or grab a friend</b></div>
+        </div>
+        <div class="menu">
+          <button id="btn-tut-done-party" class="big primary">Party routesetting</button>
+          <button id="btn-tut-done-story" class="big">Story routes</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------- freedone ---- -->
+    <section data-screen="freedone" class="center">
+      <div class="panel narrow">
+        <h2>Topped out</h2>
+        <p class="sublabel">Your own route, in <b id="free-done-time">00:00</b></p>
+        <div class="menu">
+          <button id="btn-free-again" class="big primary">Keep building</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- round ---- -->
+    <section data-screen="round" class="center">
+      <div class="panel">
+        <h2 id="round-title">Round</h2>
+        <p id="round-sub" class="sublabel"></p>
+        <div id="round-rows" class="rows"></div>
+        <div class="menu"><button id="btn-next-round" class="big primary">Next round</button></div>
+      </div>
+    </section>
+
+    <!-- --------------------------------------------------------- winner ---- -->
+    <section data-screen="winner" class="center">
+      <div class="panel">
+        <canvas id="winner-portrait" class="winnercv"></canvas>
+        <h2 id="winner-name">Winner</h2>
+        <p id="winner-sub" class="sublabel"></p>
+        <div id="winner-rows" class="rows"></div>
+        <div class="menu"><button id="btn-winner-menu" class="big primary">Back to menu</button></div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script src="src/util.js"></script>
+<script src="src/physics.js"></script>
+<script src="src/holds.js"></script>
+<script src="src/climber.js"></script>
+<script src="src/character-render.js"></script>
+<script src="src/scene-render.js"></script>
+<script src="src/components.js"></script>
+<script src="src/levels.js"></script>
+<script src="src/tutorial.js"></script>
+<script src="src/party.js"></script>
+<script src="src/ui.js"></script>
+<script src="src/game.js"></script>
+<script>
+  window.GAME = new RS.Game(document.getElementById('game'));
+</script>
+</body>
+</html>

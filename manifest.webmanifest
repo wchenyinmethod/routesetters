@@ -1,0 +1,17 @@
+{
+  "name": "Routesetters",
+  "short_name": "Routesetters",
+  "description": "A very difficult game about climbing, in which your friends are allowed to redesign the wall between every attempt.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0a0d12",
+  "theme_color": "#0a0d12",
+  "categories": ["games"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
