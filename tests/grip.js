@@ -31,8 +31,12 @@ function hang(type, mods, swing, lockPx) {
 
   const cl = new RS.Climber(g, { x: 330, y: -400, profile: RS.PROFILES[0] });
   g.climber = cl;
-  /* force the left hand onto the hold and remove the ground from under us */
-  cl.teleport(330, -400);
+  /* Hang from the hold with the arm already extended. Teleporting the body up
+     level with the hold instead starts the arm fully collapsed, which the grip
+     model quite correctly reads as a maximal lock-off - the single hardest
+     position there is - so every hold failed regardless of its quality. */
+  cl.teleport(330, -430 + RS.CLIMBER_REACH + 26);
+  cl.handL.setPos(target.x, target.y, false);
   cl.latch(cl.limbs.handL, target);
   if (mods.wet) cl.wet = mods.wet;
 

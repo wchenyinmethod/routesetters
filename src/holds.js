@@ -60,9 +60,11 @@
   });
 
   def('sloper', {
-    /* Tuned so a still one-handed hang just holds and any swing does not - which
-       is what the card promises. */
-    label: 'Sloper', r: 15, grip: 0.62, drain: 2.1, reach: 17,
+    /* Calibrated against measured demand: a straight-armed hang sits at ~0.47 and
+       a full lock-off at ~0.62, so 0.58 puts the sloper cleanly between them.
+       It held a lock-off by 0.6% at 0.62, which is not a design, it is a
+       coincidence. */
+    label: 'Sloper', r: 15, grip: 0.58, drain: 2.1, reach: 17,
     palette: ['#8f7bb5', '#67548c', '#b5a4d3'], shape: 'sloper',
     swingSensitive: 1.9   // slips fast if you're swinging
   });
@@ -288,7 +290,7 @@
    */
   RS.gripDemand = function (opts) {
     var d = 0.46 + opts.bodySpeed * 0.30;
-    d *= (1 + clamp(opts.lockoff, 0, 1) * 0.35);
+    d *= (1 + clamp(opts.lockoff, 0, 1) * 0.42);
     if (opts.feet > 0) d *= 0.72;
     if (opts.hands > 1) d *= 0.72;
     d *= (1 + opts.wet * 0.5);

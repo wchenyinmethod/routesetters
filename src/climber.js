@@ -63,6 +63,8 @@
     this.slipFx = 0;
     this.dynoCount = 0;    // read by the tutorial to confirm you tried one
     this.stanceX = null;   // where we planted our feet, so we do not creep
+    this.muscle = 1;       // 0 = fully limp, 1 = fully in control
+    this.swing = 0;        // smoothed body speed, drives grip slipping
 
     this.topped = false;
     this.toppedAt = null;
@@ -402,6 +404,13 @@
     if (this.slipFx > 0) this.slipFx -= dt * 2.5;
 
     var limp = this.stun > 0 || this.pumped > 0 || !active;
+    /* Ease muscle tone rather than switching it, so a hazard hit slumps the
+       body and it gathers itself back up instead of snapping rigid. */
+    this.muscle = RS.approach(this.muscle, limp ? 0.12 : 1, limp ? 14 : 4.5, dt);
+    /* Grip responds to SUSTAINED load, not a one-frame spike. Fingers have
+       some give, and without smoothing the transient of simply dropping onto
+       an arm rips you straight back off a hold you should have held. */
+    this.swing = RS.approach(this.swing, this.chest.speed(), 7, dt);
 
     /* Posture flags, needed by the balance controller below and the leg servo
        further down. Declared here because `var` hoisting made them undefined at
@@ -470,7 +479,7 @@
           if (!h.dynamic) L.anchor.setPos(h.x + L.offX, h.y + L.offY, true);
 
           if (L.con) L.con.peakLoad = 0;
-          var bodySpeed = this.chest.speed();
+          var bodySpeed = this.swing;
           var span = RS.dist(this.chest.x, this.chest.y, L.point.x, L.point.y) / (REACH * this.scale);
           var demand = RS.gripDemand({
             lockoff: 1 - span,
@@ -546,31 +555,56 @@
       } else {
         pull.len = RS.approach(pull.len, REACH * this.scale, 8, dt);
         pull.stiff = 0.06;
-        if (!limp) {
-          /* Free arm tracks the cursor. Damped, or the hand orbits the target
-             instead of settling on it and you cannot hit a small hold. */
-          var fx = (L.targetX - L.point.x), fy = (L.targetY - L.point.y);
-          var fl = RS.len(fx, fy);
-          var mag = Math.min(fl * 68, 3400);
-          if (fl > 0.01) {
-            var hvx = L.point.x - L.point.px, hvy = L.point.y - L.point.py;
-            L.point.addForce(
-              fx / fl * mag - hvx * 760,
-              fy / fl * mag - hvy * 760 - 420
-            );
-          }
-        }
       }
     }
 
-    /* ---- elbows want to hang below the shoulder->hand line ---- */
-    this.jointBias(this.chest, this.handL, this.elbowL, 1, 620);
-    this.jointBias(this.chest, this.handR, this.elbowR, 1, 620);
-    /* ---- knees lead forward ----
-       Eased right off while stood still: a permanent lean toward `facing` is a
-       permanent sideways force, and on a ledge that is a slow slide. */
-    this.jointBias(this.pelvis, this.footL, this.kneeL, this.facingT, standing ? 90 : 340);
-    this.jointBias(this.pelvis, this.footR, this.kneeR, this.facingT, standing ? 90 : 340);
+    /* ---- core tension while hanging ----
+       A person on one arm does not swing forever: they tense and settle. Nothing
+       else damps a hanging body here, so without this you can never "get still,
+       then move" - which is precisely what the sloper is supposed to demand.
+       Mild on purpose, so deliberate swinging on a rope still works. */
+    if (this.gripCount() > 0 && !limp) {
+      var tense = 4.5 * this.muscle;
+      var cvx = (this.chest.x - this.chest.px) * 120;
+      var cvy = (this.chest.y - this.chest.py) * 120;
+      this.chest.addForce(-cvx * tense, -cvy * tense);
+      var pvx = (this.pelvis.x - this.pelvis.px) * 120;
+      var pvy = (this.pelvis.y - this.pelvis.py) * 120;
+      this.pelvis.addForce(-pvx * tense * 0.6, -pvy * tense * 0.6);
+    }
+
+    /* ---- pose the arms with IK ----
+       Previously the hand was dragged by a linear spring and the elbow was given
+       a small shove off the shoulder-hand line. That is why the movement did not
+       read as human: the elbow ended up wherever the shove left it, never where
+       a person's elbow would be. Now we solve the arm properly and drive the
+       joints to the solution. */
+    for (i = 0; i < this.hands.length; i++) {
+      L = this.hands[i];
+      /* Solve from the CHEST, which is where the arm is physically attached.
+         Solving from the rendered shoulder (offset ~7.5px away) made every IK
+         target unreachable by construction, so the joint drives spent all their
+         effort fighting the bone-length constraints. That mismatch is most of
+         why the limbs looked wrong. */
+      var sh = this.chest;
+      var side = L.side === 'L' ? -1 : 1;
+      /* reach for the hold when latched, otherwise for the cursor */
+      var atx = L.hold ? L.hold.x : L.targetX;
+      var aty = L.hold ? L.hold.y : L.targetY;
+      if (atx === undefined) { atx = L.point.x; aty = L.point.y; }
+      /* Elbow pole: down and outboard, which is where a climber's elbow lives.
+         Using the perpendicular of the shoulder-hand line instead sounds more
+         principled but degenerates for a vertical reach - the perpendicular goes
+         horizontal and the elbow has no defined "below" to sit on. A fixed
+         world-space direction is well behaved in every direction. */
+      var apx = (sh.x + atx) * 0.5 + side * 0.55 * 24 * this.scale;
+      var apy = (sh.y + aty) * 0.5 + 24 * this.scale;
+      this.poseLimb(sh.x, sh.y, L.side === 'L' ? this.elbowL : this.elbowR, L.point,
+        DIM.upperArm * this.scale, DIM.foreArm * this.scale,
+        atx, aty, apx, apy,
+        300, L.hold ? 0 : 620, this.muscle, this.chest);
+    }
+
 
     /* ---- balance: stand up straight when you are on your feet ----
        A ragdoll stood on a ledge is an inverted pendulum, so it needs an actual
@@ -642,10 +676,14 @@
         if (this.stanceX === null) this.stanceX = this.pelvis.x;
         var sErr = this.stanceX - this.pelvis.x;
         var sVel = this.pelvis.x - this.pelvis.px;
-        this.pelvis.addForce(sErr * 130 - sVel * 420, 0);
+        this.pelvis.addForce(sErr * 260 - sVel * 620, 0);
+        /* Hold the torso over the stance too, not just the hips - the limb poles
+           and posture nudges are many small sideways forces and the anchor is the
+           one thing guaranteeing they net to nothing. */
+        this.chest.addForce((this.stanceX - this.chest.x) * 120 - (this.chest.x - this.chest.px) * 380, 0);
         var fl = this.footL, fr = this.footR;
-        fl.addForce((this.stanceX - 7 * this.scale - fl.x) * 60 - (fl.x - fl.px) * 260, 0);
-        fr.addForce((this.stanceX + 7 * this.scale - fr.x) * 60 - (fr.x - fr.px) * 260, 0);
+        fl.addForce((this.stanceX - 7 * this.scale - fl.x) * 140 - (fl.x - fl.px) * 420, 0);
+        fr.addForce((this.stanceX + 7 * this.scale - fr.x) * 140 - (fr.x - fr.px) * 420, 0);
       } else {
         this.stanceX = null;
       }
@@ -655,6 +693,36 @@
 
     /* ---- feet: automatic smearing / standing ---- */
     this.updateFeet(dt, input, limp, standing);
+
+    /* ---- pose the legs with IK ----
+       Knee pole forward, so knees never bend backwards. */
+    for (i = 0; i < this.feet.length; i++) {
+      var FL = this.feet[i];
+      var fside = FL.side === 'L' ? -1 : 1;
+      /* Same: the leg is constrained from the pelvis point itself. */
+      var hipX = this.pelvis.x;
+      var hipY = this.pelvis.y;
+      var ftx = FL.hold ? FL.hold.x : FL.targetX;
+      var fty = FL.hold ? FL.hold.y : FL.targetY;
+      if (ftx === undefined) { ftx = FL.point.x; fty = FL.point.y; }
+      /* Knee pole sideways off the hip-to-foot line. Which way matters:
+         toward `facing` looks right while climbing, but planted it points BOTH
+         knees the same way, so the two sideways forces add instead of cancelling
+         and walk the climber off the ledge. Standing, pole each knee outboard -
+         symmetric, so it nets to zero. */
+      var kneeDir = planted ? fside : (this.facingT || 1);
+      var fux = ftx - hipX, fuy = fty - hipY;
+      var ful = RS.len(fux, fuy) || 1;
+      var fnx = -fuy / ful, fny = fux / ful;
+      if (fnx * kneeDir < 0) { fnx = -fnx; fny = -fny; }
+      var fpx = (hipX + ftx) * 0.5 + fnx * 18 * this.scale;
+      var fpy = (hipY + fty) * 0.5 + fny * 18 * this.scale;
+      this.poseLimb(hipX, hipY, FL.side === 'L' ? this.kneeL : this.kneeR, FL.point,
+        DIM.thigh * this.scale, DIM.shin * this.scale,
+        ftx, fty, fpx, fpy,
+        220, FL.hold ? 0 : 300, this.muscle, this.pelvis);
+    }
+
 
     /* ---- dyno ---- */
     if (input.jump && !limp && this.jumpCd <= 0 && (this.footCount() > 0) && this.stamina > 12) {
@@ -707,18 +775,37 @@
     if (this.pelvis.y > this.world.height + 260) this.respawn();
   };
 
-  /* Push a mid-joint off the line between its neighbours so limbs bend like
-     limbs instead of snapping through themselves. */
-  Climber.prototype.jointBias = function (a, b, mid, dirSign, strength) {
-    var dx = b.x - a.x, dy = b.y - a.y;
-    var d = RS.len(dx, dy);
-    if (d < 4) return;
-    var nx = -dy / d, ny = dx / d;
-    /* choose the perpendicular that points "down" for arms, "forward" for legs */
-    if (dirSign === 1) { if (ny < 0) { nx = -nx; ny = -ny; } }
-    else { if (nx * dirSign < 0) { nx = -nx; ny = -ny; } }
-    var mx = (a.x + b.x) * 0.5 + nx * 9, my = (a.y + b.y) * 0.5 + ny * 9;
-    mid.addForce((mx - mid.x) * strength * 0.06, (my - mid.y) * strength * 0.06);
+  /* Drive a point toward where the pose says it belongs, critically damped.
+   *
+   * kd = 2*sqrt(kp) is critical damping for x'' = -kp*(x-t) - kd*x'. The active
+   * ragdoll literature is blunt about the trade-off here: too stiff and the
+   * character moves like a mannequin, too loose and it flails. Velocity is
+   * converted to px/sec so the gains mean something physical.
+   */
+  Climber.prototype.driveTo = function (p, tx, ty, kp, scale, root) {
+    kp *= (scale === undefined ? 1 : scale);
+    if (kp <= 0) return;
+    var kd = 2 * Math.sqrt(kp);
+    /* Damp velocity RELATIVE to the limb's root, never absolute. Damping against
+       the world turns every arm into a shock absorber bolted to the scenery: it
+       drains the body's swing, which quietly killed both the sloper mechanic and
+       the momentum you need to climb. */
+    var rvx = 0, rvy = 0;
+    if (root) { rvx = (root.x - root.px) * 120; rvy = (root.y - root.py) * 120; }
+    var vx = (p.x - p.px) * 120 - rvx, vy = (p.y - p.py) * 120 - rvy;
+    p.addForce((tx - p.x) * kp - vx * kd, (ty - p.y) * kp - vy * kd);
+  };
+
+  /* Pose one limb: solve where the joints belong for a given reach target, then
+   * drive them there. `pole` is the whole reason this looks human - it is what
+   * keeps elbows bending down and knees bending forward instead of inverting.
+   */
+  Climber.prototype.poseLimb = function (rootX, rootY, mid, end, d1, d2,
+                                         tx, ty, poleX, poleY, kpMid, kpEnd, muscle, root) {
+    var ik = RS.solveTwoBone(rootX, rootY, tx, ty, d1, d2, poleX, poleY, this._ik);
+    this.driveTo(mid, ik.midX, ik.midY, kpMid, muscle, root);
+    if (kpEnd > 0) this.driveTo(end, ik.endX, ik.endY, kpEnd, muscle, root);
+    return ik;
   };
 
   Climber.prototype.shoulderPos = function (side) {
@@ -794,7 +881,10 @@
           if (!step || fh.y < step.y) step = fh;
         }
         if (step) { tx = step.x; ty = step.y; }
-        p.addForce((tx - p.x) * 11, (ty - p.y) * 9);
+        /* Publish the target; the leg IK below drives the joints to it. */
+        L.targetX = tx; L.targetY = ty;
+      } else if (L.hold) {
+        L.targetX = L.hold.x; L.targetY = L.hold.y;
       }
     }
   };

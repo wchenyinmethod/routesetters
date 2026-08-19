@@ -247,6 +247,60 @@
     ctx.closePath();
   };
 
+  /* ------------------------------------------------------------------- ik */
+
+  /* Analytic two-bone IK in 2D, law of cosines. Given a root (shoulder/hip)
+   * reaching toward a target, returns where the mid joint (elbow/knee) and the
+   * end effector belong.
+   *
+   * `pole` is what makes it look human. Both bend directions are mathematically
+   * valid, and a solver without a pole hint will cheerfully pick the one no
+   * person would ever use - elbows inverted, knees bending backwards. We solve
+   * both and keep whichever puts the mid joint nearer the pole point.
+   *
+   * Targets beyond reach are clamped to the reachable annulus rather than
+   * failing, so the limb simply extends toward them.
+   */
+  RS.solveTwoBone = function (ax, ay, tx, ty, d1, d2, poleX, poleY, out) {
+    out = out || {};
+    var rawX = tx - ax, rawY = ty - ay;
+    var raw = Math.sqrt(rawX * rawX + rawY * rawY);
+
+    var dx = rawX, dy = rawY, h = raw;
+    var minR = Math.abs(d1 - d2) + 0.01;
+    var maxR = d1 + d2 - 0.01;
+    if (h < 1e-6) { dx = 0; dy = minR; h = minR; }
+    else {
+      var want = RS.clamp(h, minR, maxR);
+      if (want !== h) { dx = dx / h * want; dy = dy / h * want; h = want; }
+    }
+
+    var base = Math.atan2(dy, dx);
+    /* angle at the root between the line to the target and the first bone */
+    var A = Math.acos(RS.clamp((d1 * d1 + h * h - d2 * d2) / (2 * d1 * h), -1, 1));
+    /* interior angle at the mid joint */
+    var B = Math.acos(RS.clamp((d1 * d1 + d2 * d2 - h * h) / (2 * d1 * d2), -1, 1));
+
+    var bestS = 1, bestMx = 0, bestMy = 0, bestD = Infinity;
+    for (var s = -1; s <= 1; s += 2) {
+      var a1 = base + A * s;
+      var mx = ax + Math.cos(a1) * d1;
+      var my = ay + Math.sin(a1) * d1;
+      var pd = (mx - poleX) * (mx - poleX) + (my - poleY) * (my - poleY);
+      if (pd < bestD) { bestD = pd; bestS = s; bestMx = mx; bestMy = my; }
+    }
+    /* Bone 2 turns back AGAINST the rotation bone 1 took at the root. Adding
+       instead of subtracting keeps the bone lengths right but sends the hand
+       nowhere near the target. */
+    var a2 = (base + A * bestS) - (Math.PI - B) * bestS;
+    out.midX = bestMx;
+    out.midY = bestMy;
+    out.endX = bestMx + Math.cos(a2) * d2;
+    out.endY = bestMy + Math.sin(a2) * d2;
+    out.overExtended = raw > maxR;
+    return out;
+  };
+
   /* Capsule path from a->b with radius r. */
   RS.capsulePath = function (ctx, ax, ay, bx, by, ra, rb) {
     if (rb === undefined) rb = ra;
